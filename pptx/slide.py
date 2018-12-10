@@ -354,12 +354,18 @@ class SlideLayout(_BaseSlide):
         """
         return self.part.slide_master
 
+    @property
+    def used_by_slides(self):
+        """Tuple of slide objects based on this slide layout."""
+        # ---getting Slides collection requires going around the horn a bit---
+        slides = self.part.package.presentation_part.presentation.slides
+        return tuple(s for s in slides if s.slide_layout == self)
+
 
 class SlideLayouts(ParentedElementProxy):
-    """
-    Collection of slide layouts belonging to an instance of |SlideMaster|,
-    having list access semantics. Supports indexed access, len(), and
-    iteration.
+    """Sequence of slide layouts belonging to a slide-master.
+
+    Supports indexed access, len(), iteration, index() and remove().
     """
 
     __slots__ = ('_sldLayoutIdLst',)
@@ -391,6 +397,48 @@ class SlideLayouts(ParentedElementProxy):
         Support len() built-in function (e.g. 'len(slides) == 4').
         """
         return len(self._sldLayoutIdLst)
+
+    def get_by_name(self, name, default=None):
+        """Return SlideLayout object having *name* or *default* if not found."""
+        for slide_layout in self:
+            if slide_layout.name == name:
+                return slide_layout
+        return default
+
+    def index(self, slide_layout):
+        """Return zero-based index of *slide_layout* in this collection.
+
+        Raises ValueError if *slide_layout* is not present in this collection.
+        """
+        for index, this_layout in enumerate(self):
+            if slide_layout == this_layout:
+                return index
+        raise ValueError(
+            "slide layout %s not in this SlideLayouts collection" % slide_layout
+        )
+
+    def remove(self, slide_layout):
+        """Remove *slide_layout* from the collection.
+
+        Raises ValueError when *slide_layout* is in use. A slide layout which is the
+        basis for one or more slides cannot be removed.
+        """
+        # ---raise if layout is in use---
+        if slide_layout.used_by_slides:
+            raise ValueError('cannot remove slide-layout in use by one or more slides')
+
+        # ---target layout is identified by its index in this collection---
+        target_idx = self.index(slide_layout)
+
+        # --remove layout from p:sldLayoutIds of its master
+        # --this stops layout from showing up, but doesn't remove it from package
+        target_sldLayoutId = self._sldLayoutIdLst.sldLayoutId_lst[target_idx]
+        self._sldLayoutIdLst.remove(target_sldLayoutId)
+
+        # --drop relationship from master to layout
+        # --this removes layout from package, along with everything (only) it refers to,
+        # --including images (not used elsewhere) and hyperlinks
+        slide_layout.slide_master.part.drop_rel(target_sldLayoutId.rId)
 
 
 class SlideMaster(_BaseMaster):
